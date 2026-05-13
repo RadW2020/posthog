@@ -172,6 +172,7 @@ export enum Scene {
     WebAnalyticsHealth = 'WebAnalyticsHealth',
     WebAnalyticsLive = 'WebAnalyticsLive',
     WebScripts = 'WebScripts',
+    Deployments = 'Deployments',
     Endpoints = 'Endpoints',
     Endpoint = 'Endpoint',
     Workflow = 'Workflow',
