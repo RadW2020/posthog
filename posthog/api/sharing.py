@@ -695,7 +695,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if access_token:
             try:
                 sharing_configuration = (
-                    SharingConfiguration.objects.select_related("dashboard", "insight", "recording", "notebook")
+                    SharingConfiguration.objects.select_related(
+                        "dashboard",
+                        "insight",
+                        "recording",
+                        "notebook",
+                        "interviewee_context",
+                        "interviewee_context__topic",
+                    )
                     .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
                     .get(access_token=access_token)
                 )
@@ -1006,6 +1013,31 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             except Exception:
                 raise NotFound("No heatmap found")
+        elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
+            from django.conf import settings as django_settings
+
+            from products.user_interviews.backend.api import _merge_agent_context, _parse_identifier
+
+            ic = resource.interviewee_context
+            topic = ic.topic
+            asset_title = topic.topic or "User interview"
+            asset_description = "PostHog AI user interview"
+            user_name, _ = _parse_identifier(ic.interviewee_identifier)
+            exported_data.update(
+                {
+                    "type": "interview",
+                    "interview": {
+                        "topic_id": str(topic.id),
+                        "interviewee_identifier": ic.interviewee_identifier,
+                        "user_name": user_name,
+                        "topic": topic.topic,
+                        "agent_context": _merge_agent_context(topic.agent_context or "", ic.agent_context or ""),
+                        "questions": topic.questions or [],
+                    },
+                    "vapiPublicKey": django_settings.VAPI_PUBLIC_KEY,
+                    "vapiAssistantId": django_settings.VAPI_ASSISTANT_ID,
+                }
+            )
         elif isinstance(resource, SharingConfiguration) and resource.recording:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data

@@ -68,6 +68,23 @@ tools:
         include_params:
             - interviewee_identifier
             - agent_context
+    user-interview-topics-generate-links:
+        operation: user_interview_topics_generate_links_create
+        enabled: true
+        scopes:
+            - user_interview_DO_NOT_USE:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Generate public interview links for a topic
+        description: >
+            Generate one public, unauthenticated interview link per targeted interviewee on a user
+            interview topic. For each identifier in the topic's `interviewee_emails` and
+            `interviewee_distinct_ids`, materializes (or reuses) an IntervieweeContext row and an
+            enabled SharingConfiguration, and returns the merged voice-agent context alongside the
+            URL the interviewee should open. The URL hosts the call publicly — no PostHog login
+            required. Calling this multiple times is safe: existing share links are reused.
     user-interview-topic-interviewees-list:
         operation: user_interview_topic_interviewees_list
         enabled: true

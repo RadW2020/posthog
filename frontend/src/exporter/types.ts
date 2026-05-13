@@ -17,6 +17,16 @@ export enum ExportType {
     Scene = 'scene',
     Unlock = 'unlock',
     Heatmap = 'heatmap',
+    Interview = 'interview',
+}
+
+export interface InterviewExportPayload {
+    topic_id: string
+    interviewee_identifier: string
+    user_name: string
+    topic: string
+    agent_context: string
+    questions: string[]
 }
 
 export interface ExportedData extends SharingConfigurationSettings {
@@ -50,4 +60,10 @@ export interface ExportedData extends SharingConfigurationSettings {
     heatmap_context?: HeatmapExportContext
     /** Cohort id+name inlined for shared views, which can't reach /api/cohorts. */
     cohorts?: Pick<CohortType, 'id' | 'name'>[]
+    /** AI user interview payload — present only for `type === ExportType.Interview`. */
+    interview?: InterviewExportPayload
+    /** Vapi public key used by the interview widget. Safe to expose. */
+    vapiPublicKey?: string
+    /** Vapi assistant id used by the interview widget. */
+    vapiAssistantId?: string
 }
