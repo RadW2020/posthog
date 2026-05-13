@@ -2,11 +2,19 @@ import datetime as dt
 
 import temporalio.workflow as wf
 from temporalio import common
+from temporalio.common import SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
+from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
+
+with wf.unsafe.imports_passed_through():
+    from django.conf import settings
 
 from products.replay_vision.backend.temporal.activities import (
     create_observation_activity,
+    ensure_session_asset_activity,
+    fetch_session_events_activity,
     mark_observation_failed_activity,
     mark_observation_running_activity,
 )
@@ -15,6 +23,9 @@ from products.replay_vision.backend.temporal.types import (
     ApplyLensInputs,
     CreateObservationInputs,
     CreateObservationOutput,
+    EnsureSessionAssetInputs,
+    EnsureSessionAssetOutput,
+    FetchSessionEventsInputs,
     MarkObservationFailedInputs,
     MarkObservationRunningInputs,
 )
@@ -33,15 +44,25 @@ _CREATE_OBSERVATION_RETRY = common.RetryPolicy(
     non_retryable_error_types=["ValueError"],
 )
 
+_FETCH_RETRY = common.RetryPolicy(
+    initial_interval=dt.timedelta(seconds=2),
+    maximum_interval=dt.timedelta(seconds=30),
+    maximum_attempts=3,
+)
+
+# Asset get-or-create has no transient failure modes worth retrying — anything that errors here
+# (DB outage, FK violation) errors the same way next time.
+_ENSURE_ASSET_RETRY = common.RetryPolicy(maximum_attempts=1)
+
 _STUB_NOT_IMPLEMENTED_REASON = (
-    "ApplyLensWorkflow is a stub: the rasterize → upload → call-provider → emit-event pipeline "
-    "is not implemented yet. The observation row is exercised end-to-end so wiring can be verified."
+    "ApplyLensWorkflow is a stub: events fetched and video rasterized, but the provider call "
+    "and event-emit terminal step are not implemented yet."
 )
 
 
 @wf.defn(name=APPLY_LENS_WORKFLOW_NAME)
 class ApplyLensWorkflow(PostHogWorkflow):
-    """Apply one lens to one session. STUB: marks the row failed; the real pipeline replaces that step."""
+    """Apply one lens to one session. STUB: rasterizes + fetches events, then marks failed."""
 
     inputs_cls = ApplyLensInputs
 
@@ -72,6 +93,60 @@ class ApplyLensWorkflow(PostHogWorkflow):
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=_STATE_ACTIVITY_RETRY,
         )
+
+        try:
+            await wf.execute_activity(
+                fetch_session_events_activity,
+                FetchSessionEventsInputs(
+                    observation_id=observation_id,
+                    team_id=inputs.team_id,
+                    session_id=inputs.session_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=_FETCH_RETRY,
+            )
+
+            asset_result: EnsureSessionAssetOutput = await wf.execute_activity(
+                ensure_session_asset_activity,
+                EnsureSessionAssetInputs(team_id=inputs.team_id, session_id=inputs.session_id),
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=_ENSURE_ASSET_RETRY,
+            )
+
+            # Per-lens child workflow id so concurrent observations of the same session don't collide
+            # on WorkflowAlreadyStartedError. The asset-level render_fingerprint cache still saves the
+            # second render once the first one finishes and stamps the asset.
+            await wf.execute_child_workflow(
+                "rasterize-recording",
+                RasterizeRecordingInputs(exported_asset_id=asset_result.asset_id),
+                id=f"replay-vision-rasterize-{inputs.team_id}-{inputs.session_id}-{inputs.lens_id}",
+                task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+                retry_policy=common.RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                execution_timeout=dt.timedelta(minutes=30),
+                search_attributes=TypedSearchAttributes(
+                    search_attributes=[
+                        SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),
+                        SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=inputs.session_id),
+                    ]
+                ),
+            )
+        except Exception as e:
+            try:
+                await wf.execute_activity(
+                    mark_observation_failed_activity,
+                    MarkObservationFailedInputs(
+                        observation_id=observation_id,
+                        error_reason=f"{type(e).__name__}: {e}",
+                    ),
+                    start_to_close_timeout=dt.timedelta(seconds=30),
+                    retry_policy=_STATE_ACTIVITY_RETRY,
+                )
+            finally:
+                # Re-raise the original failure even if mark_failed itself errored, so the observation
+                # row left in RUNNING is at least tied to a workflow that visibly failed.
+                raise
+
         await wf.execute_activity(
             mark_observation_failed_activity,
             MarkObservationFailedInputs(
