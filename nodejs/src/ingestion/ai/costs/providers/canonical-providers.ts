@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-12 10:48:44 UTC
+// Generated at: 2026-05-13 20:30:27 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -104,6 +104,7 @@ export type CanonicalProvider =
     | 'parasail-fp8'
     | 'parasail-int4'
     | 'parasail-int8'
+    | 'perceptron'
     | 'perplexity'
     | 'phala'
     | 'poolside-fp8'
