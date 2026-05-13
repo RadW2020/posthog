@@ -162,6 +162,7 @@ export enum Scene {
     Transformations = 'Transformations',
     Unsubscribe = 'Unsubscribe',
     UserInterview = 'UserInterview',
+    UserInterviewResponse = 'UserInterviewResponse',
     UserInterviews = 'UserInterviews',
     VercelConnect = 'VercelConnect',
     VercelLinkError = 'VercelLinkError',
