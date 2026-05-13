@@ -141,6 +141,7 @@ rules:
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
+                              |IntervieweeContext
                               |KnowledgeChunk
                               |KnowledgeDocument
                               |KnowledgeSource
@@ -358,6 +359,7 @@ rules:
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
+                        |IntervieweeContext
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeSource
